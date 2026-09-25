@@ -1181,6 +1181,15 @@ ssh_pwauth: true
           helm_controller: true, metrics: true, load_balancer: "servicelb", control_plane: ["192.168.1.50"], arch: ["amd64"] }
       : { distribution: "harvester", version: "1.31.4+rke2r1", harvester: true, longhorn: true, kubevirt: true, cdi: true, helm_controller: true,
           metrics: true, load_balancer: "kube-vip", control_plane: ["192.168.1.207", "192.168.1.208"], arch: ["amd64"] },
+    "/api/addons": demoPlatform === "harvester" ? { harvester: true }
+      : { distribution: "k3s", harvester: false, helm_controller: true,
+          longhorn: { installed: false, installing: false },
+          kubevirt: { installed: demoPlatform === "kubevirt", installing: false, cdi: false },
+          kvm: { "k3s-server-1": true, "k3s-agent-1": false }, kvm_known: true, kvm_everywhere: false, kvm_nowhere: false },
+    "/api/addons/longhorn": { ok: true, name: "longhorn", job: "helm-install-longhorn", copies: 2,
+      detail: "Longhorn is being installed, keeping 2 copies of each volume." },
+    "/api/addons/kubevirt": { ok: true, name: "homestead-kubevirt", job: "helm-install-homestead-kubevirt",
+      kubevirt: "v1.9.0", cdi: "v1.62.0", emulation: false, detail: "KubeVirt v1.9.0 and CDI v1.62.0 are being installed" },
     "/api/vm/create-options": demoPlatform === "harvester"
       ? { harvester: true, cdi: true, distribution: "harvester", default_class: "longhorn-r2",
           storage_classes: ["harvester-longhorn", "longhorn-r2", "longhorn-r3"],
