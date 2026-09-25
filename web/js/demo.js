@@ -104,13 +104,13 @@
   })();
   // Every disk on each node: the system disk with Longhorn's default folder,
   // a second disk given to Longhorn, and one nothing uses yet.
-  const lhDisk = (id, path, size, used, alloc, replicas) => ({ id, path, type: "filesystem", scheduling: true, evicting: false,
-    size_gb: size, used_gb: used, allocated_gb: alloc, free_gb: size - used, replicas, ready: true, problem: "" });
+  const lhDisk = (id, path, size, used, alloc, replicas, tags = []) => ({ id, path, type: "filesystem", scheduling: true, evicting: false,
+    size_gb: size, used_gb: used, allocated_gb: alloc, free_gb: size - used, replicas, ready: true, problem: "", tags });
   const demoDisks = {
     "harvester-node1": [
       { device: "nvme0n1", path: "/dev/nvme0n1", size_gb: 465.8, model: "Samsung SSD 970 EVO Plus", kind: "NVMe", serial: "", system: true, role: "longhorn",
         mounts: ["/", "/var/lib/harvester/defaultdisk"], blockdevice: null, can_add: false, needs_wipe: false,
-        longhorn: [lhDisk("default-disk-1", "/var/lib/harvester/defaultdisk", 116.8, 26.3, 99, 12)] },
+        longhorn: [lhDisk("default-disk-1", "/var/lib/harvester/defaultdisk", 116.8, 26.3, 99, 12, ["ssd", "nvme"])] },
       { device: "sdb", path: "/dev/sdb", size_gb: 1863, model: "Seagate IronWolf", kind: "HDD", serial: "", system: false, role: "unused",
         mounts: [], can_add: true, needs_wipe: true, longhorn: [],
         blockdevice: { name: "bd-node1-sdb", path: "/dev/sdb", provisioned: false, fstype: "ext4", state: "Active" } }],
@@ -120,11 +120,11 @@
       { device: "sda", path: "/dev/sda", size_gb: 931.5, model: "WDC WD100EFAX", kind: "HDD", serial: "", system: false, role: "longhorn",
         mounts: ["/var/lib/harvester/extra-disks/abc"], can_add: false, needs_wipe: false,
         blockdevice: { name: "bd-node2-sda", path: "/dev/sda", provisioned: true, fstype: "ext4", state: "Active" },
-        longhorn: [lhDisk("bd-node2-sda", "/var/lib/harvester/extra-disks/abc", 396.5, 14.8, 160.2, 15)] }],
+        longhorn: [lhDisk("bd-node2-sda", "/var/lib/harvester/extra-disks/abc", 396.5, 14.8, 160.2, 15, ["hdd"])] }],
     "harvester-node3": [
       { device: "nvme0n1", path: "/dev/nvme0n1", size_gb: 465.8, model: "Kingston NV2", kind: "NVMe", serial: "", system: true, role: "longhorn",
         mounts: ["/", "/var/lib/harvester/defaultdisk"], blockdevice: null, can_add: false, needs_wipe: false,
-        longhorn: [lhDisk("default-disk-3", "/var/lib/harvester/defaultdisk", 116.8, 21.1, 80, 9)] },
+        longhorn: [lhDisk("default-disk-3", "/var/lib/harvester/defaultdisk", 116.8, 21.1, 80, 9, ["ssd"])] },
       // A drive that died: Harvester has lost it, Longhorn still lists it with
       // its replicas, and a new drive sits beside it waiting to be added.
       { device: "", path: "", size_gb: 931.5, model: "", kind: "", serial: "", system: false, role: "longhorn",
@@ -891,6 +891,8 @@ ssh_pwauth: true
         encrypted: true, expandable: true, reclaim: "Delete", default: false, internal: false, in_use: 0 },
       { name: "longhorn-r2", provisioner: "driver.longhorn.io", engine: "v1", replicas: "2", migratable: true,
         expandable: true, reclaim: "Retain", default: false, internal: false, in_use: 7 },
+      { name: "longhorn-ssd", provisioner: "driver.longhorn.io", engine: "v1", replicas: "2", migratable: false,
+        expandable: true, reclaim: "Delete", default: false, internal: false, in_use: 1, disk_tags: ["ssd"], node_tags: [] },
       { name: "longhorn-static", provisioner: "driver.longhorn.io", engine: "v1", replicas: "", migratable: false,
         expandable: false, reclaim: "Delete", default: false, internal: true, in_use: 0 },
       { name: "longhorn-v2", provisioner: "driver.longhorn.io", engine: "v2", replicas: "2", migratable: false,
@@ -1206,7 +1208,10 @@ ssh_pwauth: true
         nodes: ["harvester-node1", "harvester-node2", "harvester-node3"].map(name => ({ name, ready: false, block_disks: 0, hugepages_mb: 0,
           missing: ["a V2 (block) disk", "2 GiB of hugepages (has 0 MiB)"] })) } },
     "/api/longhorn/settings": { ok: true, detail: "Saved: over-provisioning 150%" },
-    "/api/disks": { harvester: true, nodes: demoDisks },
+    "/api/disks": { harvester: true, nodes: demoDisks, disk_tags: ["hdd", "nvme", "ssd"], all_node_tags: ["rack-a"],
+      node_tags: { "harvester-node1": ["rack-a"], "harvester-node2": [], "harvester-node3": ["rack-a"] } },
+    "/api/disks/tags": (url, init) => ({ ok: true, detail: `tagged ${JSON.parse(init?.body || "{}").tags.join(", ")}` }),
+    "/api/disks/node-tags": (url, init) => ({ ok: true, detail: `tagged ${JSON.parse(init?.body || "{}").tags.join(", ")}` }),
     "/api/disks/add": { ok: true, detail: "Harvester is wiping and adding /dev/sdb on harvester-node1 to Longhorn" },
     "/api/disks/scheduling": { ok: true, detail: "done" }, "/api/disks/evict": { ok: true, detail: "moving replicas off" },
     "/api/disks/remove": { ok: true, detail: "released" },
