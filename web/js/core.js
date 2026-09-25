@@ -6,6 +6,24 @@ const STATE = { view: "dash", q: "", data: {}, busy: false };
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/* Put text on the clipboard. The Clipboard API exists only on HTTPS and
+   localhost, and Homestead is often opened at http://its-address, so the
+   older copy command stands in there. */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (_) { /* not a secure page */ }
+  const area = document.createElement("textarea");
+  area.value = text; area.setAttribute("readonly", ""); area.style.cssText = "position:fixed;top:-1000px;opacity:0";
+  document.body.appendChild(area); area.select();
+  let done = false;
+  try { done = document.execCommand("copy"); } catch (_) { done = false; }
+  area.remove();
+  return done;
+}
+/* The clipboard's text, or null where the page may not read it - an HTTP
+   page, or a browser that asks and was refused. */
+async function readClipboard() {
+  try { return navigator.clipboard?.readText ? await navigator.clipboard.readText() : null; } catch (_) { return null; }
+}
 const HOMESTEAD_VERSION = "2.8.142";
 const ICON_BLOBS = new Map();
 const HEALTH_DEFAULTS = { thresholds: {
