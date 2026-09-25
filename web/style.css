@@ -62,6 +62,10 @@ body{
   letter-spacing:-.006em;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
 }
+/* A browser gives buttons its own system font rather than the page's, so
+   every button - "＋ Create volume" and the rest - takes the page's here.
+   :where keeps this weaker than any button that sets a font of its own. */
+:where(button){font-family:inherit}
 .bignum,.midnum,.dcenter,.vipip,.fv,.lg .v1,.lg .v2,.meter+*,.mono{
   font-family:"JetBrains Mono","SF Mono",ui-monospace,Menlo,Consolas,monospace;
   font-feature-settings:"tnum" 1;letter-spacing:-.02em}
