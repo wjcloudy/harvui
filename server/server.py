@@ -1330,6 +1330,10 @@ def get_flow2():
     except Exception:
         vmis = []
     try:
+        vms = kget("/apis/kubevirt.io/v1/virtualmachines").get("items", [])
+    except Exception:
+        vms = []
+    try:
         dep_meta = {(d["metadata"]["namespace"], d["metadata"]["name"]):
                     d["metadata"].get("annotations", {}) or {}
                     for d in kget("/apis/apps/v1/deployments").get("items", [])}
@@ -1387,6 +1391,24 @@ def get_flow2():
             if vip:
                 vips.setdefault(vip, []).append({"port": prt.get("port"), "app": app})
 
+    def vm_ports(ns, name, labels):
+        """A VM's ports: those of each Service in its namespace that selects
+        it - by the labels on its pods, such as Harvester's vmName - and not
+        by app, which is how a container's are found."""
+        out = []
+        for s in svcs:
+            selector = s["spec"].get("selector") or {}
+            if (s["metadata"]["namespace"] != ns or not selector or "app" in selector
+                    or any(labels.get(k) != v for k, v in selector.items())):
+                continue
+            ing = s.get("status", {}).get("loadBalancer", {}).get("ingress", []) or []
+            vip = ing[0].get("ip") if ing else None
+            for prt in s["spec"].get("ports", []) or []:
+                out.append({"port": prt.get("port"), "name": prt.get("name") or "tcp", "vip": vip})
+                if vip:
+                    vips.setdefault(vip, []).append({"port": prt.get("port"), "app": name})
+        return out
+
     # --- per-pod live metrics for the architecture cards
     try:
         pmet = {}
@@ -1398,9 +1420,17 @@ def get_flow2():
         pmet = {}
 
     # --- workloads
-    seen, wls = set(), []
+    seen, wls, launchers = set(), [], {}
     for p in pods:
-        app = p["metadata"].get("labels", {}).get("app") or p["metadata"]["name"].rsplit("-", 2)[0]
+        labels = p["metadata"].get("labels", {}) or {}
+        # A VM runs in a virt-launcher pod; it is shown as the VM, below, not
+        # as a container - and every VM's launcher is not one app.
+        if labels.get("kubevirt.io") or labels.get("vm.kubevirt.io/name"):
+            if labels.get("kubevirt.io") == "virt-launcher" and p["status"].get("phase") == "Running":
+                launchers[(p["metadata"]["namespace"], labels.get("vm.kubevirt.io/name")
+                           or labels.get("kubevirt.io/domain", ""))] = p
+            continue
+        app = labels.get("app") or p["metadata"]["name"].rsplit("-", 2)[0]
         if app in seen:
             continue
         seen.add(app)
@@ -1424,12 +1454,43 @@ def get_flow2():
                        for c in p["spec"].get("containers", []) for m in (c.get("volumeMounts") or [])),
             "claims": claims, "ports": ports_by_app.get(app, []),
         })
-    for v in vmis:
-        nm = v["metadata"]["name"]
-        wls.append({"id": "w:vm-" + nm, "name": nm, "kind": "vm", "ns": v["metadata"]["namespace"],
-                    "node": v.get("status", {}).get("nodeName", ""), "phase": v.get("status", {}).get("phase", ""),
-                    "uptime": 0, "cpu": 0, "mem_mb": 0,
-                    "image": "", "gpu": False, "hardware": [], "claims": [], "ports": []})
+    # --- virtual machines, running or not: a stopped VM's disks are still here
+    vmi_by = {(v["metadata"]["namespace"], v["metadata"]["name"]): v for v in vmis}
+    known = [(v, vmi_by.get((v["metadata"]["namespace"], v["metadata"]["name"]), {})) for v in vms]
+    named = {(v["metadata"]["namespace"], v["metadata"]["name"]) for v in vms}
+    # An instance made without a VirtualMachine is shown by itself.
+    known += [({"metadata": v["metadata"], "spec": {"template": {"metadata": {"labels": (v["metadata"].get("labels") or {})},
+                                                                "spec": v.get("spec") or {}}}}, v)
+              for key, v in vmi_by.items() if key not in named]
+    for vm, vmi in known:
+        ns, nm = vm["metadata"]["namespace"], vm["metadata"]["name"]
+        if ns in SYS_NS:
+            continue
+        # Its disks as it runs now (hot-plugged ones too), else as defined.
+        volumes = ((vmi.get("spec") or {}).get("volumes")
+                   or (((vm.get("spec") or {}).get("template") or {}).get("spec") or {}).get("volumes") or [])
+        addresses = [a for i in (vmi.get("status") or {}).get("interfaces") or []
+                     for a in (i.get("ipAddresses") or [i.get("ipAddress")]) if a and ":" not in a]
+        row = {"disks": [{"claim": VMS._volume_claim(v)} for v in volumes], "ip": addresses[0] if addresses else "",
+               "status": VMS._status(vm, vmi), "node": (vmi.get("status") or {}).get("nodeName", ""),
+               "running": (vmi.get("status") or {}).get("phase") == "Running"}
+        launcher = launchers.get((ns, nm))
+        cu, mu = pmet.get((ns, launcher["metadata"]["name"]), (0, 0)) if launcher else (0, 0)
+        pod_labels = dict((launcher or {}).get("metadata", {}).get("labels") or {})
+        pod_labels.update(((vm.get("spec") or {}).get("template") or {}).get("metadata", {}).get("labels") or {})
+        wls.append({
+            "id": "w:vm-" + nm, "name": nm, "kind": "vm", "ns": ns,
+            "node": row.get("node") or (vmi.get("status") or {}).get("nodeName", ""),
+            "phase": (vmi.get("status") or {}).get("phase", "") or "Stopped",
+            "state": str(row.get("status") or ""),
+            "running": bool(row.get("running")), "ip": row.get("ip", ""),
+            "uptime": age_secs((launcher or {}).get("status", {}).get("startTime")) if launcher else 0,
+            "cpu": round(cu, 3), "mem_mb": round(mu / 1048576, 1),
+            "image": "", "icon": "", "gpu": False, "hardware": [],
+            "claims": [{"pvc": d["claim"], "vid": vol_by_pvc[d["claim"]]["id"] if d["claim"] in vol_by_pvc else ""}
+                       for d in row.get("disks") or [] if d.get("claim")],
+            "ports": vm_ports(ns, nm, pod_labels),
+        })
 
     return {
         "nodes": [{"id": "n:" + k, "name": k, "copies": sorted(v, key=lambda x: x["vol"])}

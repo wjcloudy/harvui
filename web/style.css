@@ -749,6 +749,7 @@ svg use,#nav a svg,.iconbtn svg,.sicon svg{stroke:currentColor;fill:none;stroke-
 .a2copy{max-width:100%;padding:2px 7px;border-radius:6px;border:1px solid rgba(167,139,250,.35);background:rgba(167,139,250,.08);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .a2copy.stopped{border-style:dashed;color:var(--mut)}
 .a2alone{opacity:.7}
+.a2stopped{opacity:.55}.a2stopped .a2meta{font-style:italic}
 .arch2 .dimmed{opacity:.2}
 .arch2 .sel{border-color:var(--line2);box-shadow:0 0 0 1px var(--line2)}
 .a2link{fill:none;stroke-width:1.2;opacity:.3;transition:opacity .2s}

@@ -23,7 +23,9 @@ async function viewFlow() {
   f.nodes.forEach(n => n.copies.forEach(c => links.push([c.vid, `${n.id}|${c.vid}`, "copy"])));
   STATE.data.alinks = links;
   const used = new Set(links.flat());
-  const kind = w => w.kind === "vm" ? "virtual machine" : (w.node || "").replace(/^harvester-/, "");
+  const host = w => (w.node || "").replace(/^harvester-/, "");
+  const kind = w => w.kind === "vm" ? (w.running ? `VM · ${host(w) || w.state || "starting"}` : `VM · ${(w.state || "stopped").toLowerCase()}`) : host(w);
+  const vmCount = f.workloads.filter(w => w.kind === "vm").length;
 
   paint(`<div class="phead">
       <div><h2>Architecture</h2><p>How each app is reached, where its data lives, and which hosts hold the copies · hover anything to trace it</p></div>
@@ -43,13 +45,14 @@ async function viewFlow() {
         || '<div class="dim xs">No load-balancer addresses</div>'}
       </section>
 
-      <section class="a2col"><h4>Containers <span class="dim">${f.workloads.length}</span></h4>
-      ${f.workloads.map(w => `<div class="a2item a2wl ${used.has(w.id) ? "" : "a2alone"}" id="${esc(w.id)}" data-kind="workload" data-id="${esc(w.id)}"
-          title="${esc(w.name)} · ${esc(kind(w))} · ${workloadCpuPercent(w.cpu)} CPU · ${w.mem_mb || 0} MB">
+      <section class="a2col"><h4>${vmCount ? "Containers &amp; VMs" : "Containers"} <span class="dim">${f.workloads.length}</span></h4>
+      ${f.workloads.map(w => `<div class="a2item a2wl ${used.has(w.id) ? "" : "a2alone"} ${w.kind === "vm" && !w.running ? "a2stopped" : ""}"
+          id="${esc(w.id)}" data-kind="workload" data-id="${esc(w.id)}"
+          title="${esc(w.name)} · ${esc(kind(w))}${w.ip ? ` · ${esc(w.ip)}` : ""}${w.kind !== "vm" || w.running ? ` · ${workloadCpuPercent(w.cpu)} CPU · ${w.mem_mb || 0} MB` : ""}">
           ${appAvatar(w.name, w.icon)}<span class="a2name">${esc(w.name)}</span>
           <span class="a2meta">${esc(kind(w))}</span>
-          <button class="a2act" data-need="operator" title="${w.kind === "vm" ? "Migrate" : "Move to another host"}"
-            onclick="event.stopPropagation();${w.kind === "vm" ? `vmMove('${esc(w.ns || "lab")}','${esc(w.name)}')` : `moveWorkload('${esc(w.name)}','${esc(w.ns || "lab")}')`}">⇄</button>
+          ${w.kind === "vm" && !w.running ? "" : `<button class="a2act" data-need="operator" title="${w.kind === "vm" ? "Migrate" : "Move to another host"}"
+            onclick="event.stopPropagation();${w.kind === "vm" ? `vmMove('${esc(w.ns || "lab")}','${esc(w.name)}')` : `moveWorkload('${esc(w.name)}','${esc(w.ns || "lab")}')`}">⇄</button>`}
         </div>`).join("") || '<div class="dim xs">Nothing running</div>'}
       </section>
 
